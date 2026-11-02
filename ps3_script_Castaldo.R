@@ -281,3 +281,130 @@ retail_nsa_x13 <- retail_ts |>
 
 retail_nsa_x13 |> autoplot()
 
+# 4.3a: December has the highest seasonal factor, at about 1.2 in the 1990s,
+# meaning December sales are roughly 20% above trend. Sales then dip in
+# January and February, to about 10-13% below trend. The seasonal swings
+# appear to shrink over time: the December peak falls from about 1.2 in the
+# 1990s to about 1.15 in recent years, so the holiday spike is a smaller
+# share of sales than it used to be.
+
+#4.3b 
+
+sa_compare <- retail_nsa_x13 |>
+  as_tibble() |>
+  select(Month, mine = season_adjust) |>
+  left_join(
+    retail_ts |>
+      filter(series_id == "RSAFS") |>
+      as_tibble() |>
+      transmute(Month, census = sales),
+    by = "Month"
+  ) |>
+  mutate(pct_diff = 100 * (log(mine) - log(census)))
+
+sa_compare |>
+  ggplot(aes(x = Month, y = pct_diff)) +
+  geom_line() +
+  labs(
+    title = "My X-13 Seasonal Adjustment Minus the Census Bureau's",
+    x = NULL, y = "Difference (%)"
+  ) +
+  theme_minimal()
+
+#4.3b # 4.3b: My X-13 seasonal adjustment matches the official RSAFS series closely:
+# the percent difference is mostly between about -0.5% and +0.5%. The two
+# differ most after the start of COVID, especially around 2021-2023, with
+# differences up to about 1.6%. 
+
+#4.4 
+can_gas_fit <- can_gas |>
+  model(TSLM(log_volume ~ trend() + season()))
+
+report(can_gas_fit)
+
+can_gas_fit |>
+  tidy() |>
+  select(term, estimate, std.error, statistic, p.value) |>
+  knitr::kable(digits = 3)
+
+#4.4a
+# 4.4: The estimated average monthly growth rate of gas production is about
+# 0.4% per month (trend coefficient of 0.004 x 100), or roughly 4.8% per year.
+# June has the most significant seasonal effect, with a t-statistic of -4.777:
+# June production is about 0.25 log points (roughly 22%) below January,
+# consistent with lower demand for natural gas in the summer.
+
+#4.4b
+
+can_gas_fit |>
+  augment() |>
+  ggplot(aes(x = Month)) +
+  geom_line(aes(y = log_volume, color = "Actual")) +
+  geom_line(aes(y = .fitted, color = "Fitted")) +
+  labs(title = "Linear Trend + Seasonal Dummies Fit: Canadian Gas Production",
+       y = "log(Volume)", color = NULL) +
+  theme_minimal()
+
+# 4.4b: The fitted line tracks the actual series well from about the mid-1980s
+# to the late 1990s, but it visibly misses in several places: it is far above
+# the actual data in the early 1960s, below it during the 1970s and early
+# 1980s, and above it again after 2000 as actual production levels off. The
+# straight-line trend doesn't capture the bends in the series' growth.
+
+
+#4.4c
+can_gas_fit |> gg_tsresiduals()
+
+can_gas_fit |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+
+# There seems to be heavy autocorrelation looking at the ACF there is lare autocorreltation that decays slow
+# which could indicate that. there are trending variables in the residuals. The Ljung-Box test shows that the residuals are not white noise, with a p-value of 0.000, indicating that the model does not capture all the structure in the data. This suggests that a more complex model may be needed to better fit the series.
+
+
+gas_cv_fc <- can_gas |>
+  select(Month, Volume) |>
+  stretch_tsibble(.init = 240, .step = 1) |>
+  model(snaive = SNAIVE(Volume),
+        tslm   = TSLM(log(Volume) ~ trend() + season())) |>
+  forecast(h = 1)
+
+gas_cv_fc |>
+  accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
+# 5.1a: The first forecast evaluated is for January 1980 (the first training
+# sample is the 240 months from January 1960 to December 1979), and the last
+# is for February 2005, the last month of data. SNAIVE forecasts much more
+# accurately than the trend + seasonal dummies model: MAE of 0.562 vs. 4.01 and
+# RMSE of 0.702 vs. 4.36 (billions of cubic meters). The two metrics agree,
+# both ranking SNAIVE as more accurate.
+
+errs <- gas_cv_fc |>
+  as_tibble() |>
+  left_join(as_tibble(can_gas) |> select(Month, actual = Volume),
+            by = "Month") |>
+  mutate(e = actual - .mean) |>
+  select(Month, .model, e) |>
+  pivot_wider(names_from = .model, values_from = e) |>
+  na.omit()
+
+forecast::dm.test(errs$snaive, errs$tslm, h = 1, power = 1)
+
+#5.2 the DM = -31.278 pvalue super small so we reject the null hypothesis that the two models have equal predictive accuracy. The SNAIVE model is significantly more accurate than the trend + seasonal dummies model, consistent with the MAE and RMSE results above. The large negative DM statistic indicates that the SNAIVE errors are much smaller than the TSLM errors.
+
+# 5.3 
+
+# 5.3a: Rolling window of 240 months
+gas_cv_roll <- can_gas |>
+  select(Month, Volume) |>
+  slide_tsibble(.size = 240, .step = 1) |>
+  model(snaive = SNAIVE(Volume),
+        tslm   = TSLM(log(Volume) ~ trend() + season())) |>
+  forecast(h = 1)
+
+gas_cv_roll |>
+  accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
+
+# the MAE
+
+
