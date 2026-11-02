@@ -405,6 +405,13 @@ gas_cv_roll <- can_gas |>
 gas_cv_roll |>
   accuracy(can_gas, measures = list(MAE = MAE, RMSE = RMSE))
 
-# the MAE
 
+# 5.3a: With a rolling window, SNAIVE's accuracy is unchanged (MAE 0.562,
+# RMSE 0.702), while TSLM improves a lot (MAE falls from 4.01 to 2.09 and
+# RMSE from 4.36 to 2.42), so TSLM's accuracy changed more. SNAIVE only uses
+# the value from 12 months earlier, so the length of the training sample does
+# not matter. TSLM fits a single straight-line trend, and in 4.4b that line
+# was pulled too steep by the fast 1960s growth. A rolling window drops those
+# early years, so the trend reflects more recent, slower growth and the
+# forecasts overshoot less, though TSLM is still far less accurate than SNAIVE.
 
